@@ -145,9 +145,14 @@ st.markdown("</div>", unsafe_allow_html=True)
 # Sidebar for controls
 st.sidebar.header("Controls")
 
-# Date range selector
-start_date = st.sidebar.date_input("Start Date", max(pd.Timestamp('2024-04-12').date(), min(data_no_filename['Date']).date()))
-end_date = st.sidebar.date_input("End Date", max(data_no_filename['Date']).date())
+# Check if data_no_filename is empty
+if not data_no_filename.empty:
+    min_date = min(data_no_filename['Date']).date()
+else:
+    min_date = pd.Timestamp('2024-04-12').date()
+
+start_date = st.sidebar.date_input("Start Date", min_value=min_date, max_value=max(pd.Timestamp('2024-04-12').date(), pd.Timestamp.now().date()))
+end_date = st.sidebar.date_input("End Date", min_value=start_date, max_value=pd.Timestamp.now().date())
 
 # Filter data based on selected date range
 filtered_data = data_no_filename[(data_no_filename['Date'].dt.date >= start_date) & 
