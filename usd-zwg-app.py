@@ -60,16 +60,16 @@ def extract_usd_mid_rate2_from_pdf(pdf_path):
         print(f"Error extracting MID_RATE2 from {pdf_path}: {e}")
         return None
 
-# Inside the update_data function
 def update_data(csv_path):
+    default_start_date = pd.Timestamp('2024-04-12')
+
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
         df['Date'] = pd.to_datetime(df['Date'])
         last_date = df['Date'].max()
     else:
         df = pd.DataFrame(columns=['Date', 'MID_RATE2', 'Filename'])
-        last_date = datetime.now().date() - timedelta(days=30)  # Start from 30 days ago if no data
-        last_date = pd.Timestamp(last_date)
+        last_date = default_start_date
 
     today = pd.Timestamp(datetime.now().date())
     new_data = []
@@ -80,7 +80,7 @@ def update_data(csv_path):
         
         for url in urls:
             filename = url.split('/')[-1]
-            save_path = os.path.join('data', filename)
+            save_path = os.path.join('temp', filename)
             
             if download_pdf(url, save_path):
                 mid_rate2 = extract_usd_mid_rate2_from_pdf(save_path)
@@ -101,6 +101,7 @@ def update_data(csv_path):
         print("No new data to add.")
 
     return df
+
 
 
 st.set_page_config(page_title="USD/ZWG Exchange Rate Analysis", layout="wide")
@@ -130,7 +131,7 @@ st.markdown("""
 # Load data
 @st.cache_data
 def load_data():
-    csv_path = 'sorted_usd_mid_rates.csv'
+    csv_path = 'sorted_usd_zig_rates.csv'
     df = update_data(csv_path)
     return df.drop(columns=['Filename'])
 
@@ -145,7 +146,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.sidebar.header("Controls")
 
 # Date range selector
-start_date = st.sidebar.date_input("Start Date", min(data_no_filename['Date']).date())
+start_date = st.sidebar.date_input("Start Date", max(pd.Timestamp('2024-04-12').date(), min(data_no_filename['Date']).date()))
 end_date = st.sidebar.date_input("End Date", max(data_no_filename['Date']).date())
 
 # Filter data based on selected date range
@@ -153,6 +154,7 @@ filtered_data = data_no_filename[(data_no_filename['Date'].dt.date >= start_date
                                  (data_no_filename['Date'].dt.date <= end_date)]
 filtered_data = filtered_data.sort_values('Date')
 filtered_data = filtered_data.drop_duplicates(subset=['Date'])
+
 
 # Graph controls
 line_color = st.sidebar.color_picker("Choose line color", "#1f77b4")
@@ -215,14 +217,14 @@ with col1:
         st.download_button(
             label="Click here to download",
             data=csv,
-            file_name="filtered_usd_zwg_rates.csv",
+            file_name="filtered_usd_zig_rates.csv",
             mime="text/csv",
         )
 
 with col2:
     if st.button("Update Data"):
         with st.spinner("Updating data... This may take a moment."):
-            updated_data = update_data('sorted_usd_mid_rates.csv')
+            updated_data = update_data('sorted_usd_zig_rates.csv')
         st.success("Data updated successfully!")
         st.experimental_rerun()
 
