@@ -5,3 +5,4 @@ seaborn
 PyPDF2
 urllib3
 holidays
+mplcursors
