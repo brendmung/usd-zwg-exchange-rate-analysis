@@ -11,46 +11,6 @@ import PyPDF2
 import mplcursors
 from datetime import date
 import re
-import json
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from multiprocessing import Process
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-csv_path = 'sorted_usd_zig_rates.csv'
-
-@app.get("/api/exchange_rates")
-def read_exchange_rates():
-    data = load_data()
-    return data.to_dict(orient='records')
-
-@app.get("/api/market_status")
-def get_market_status():
-    return {"is_closed": is_market_closed_today()}
-
-@app.get("/api/latest_rate")
-def get_latest_rate():
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
-        df['Date'] = pd.to_datetime(df['Date']).dt.date
-        latest_date = df['Date'].max()
-        latest_rate = df.loc[df['Date'] == latest_date, 'MID_RATE'].iloc[0]
-        return {
-            "latest_date": latest_date.strftime('%Y-%m-%d'),
-            "latest_rate": round(latest_rate, 4)
-        }
-    else:
-        return {"error": "Data file not found"}
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -387,15 +347,3 @@ if st.button("Download Filtered Data as CSV"):
     )
 
 st.sidebar.info(f"Data is automatically updated daily. Last update: {data_no_filename['Date'].max().strftime('%Y-%m-%d')}")
-
-
-def run_fastapi():
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-if __name__ == "__main__":
-    # Start FastAPI in a separate process
-    Process(target=run_fastapi).start()
-    
-    # Run Streamlit
-    import streamlit.web.bootstrap as bootstrap
-    bootstrap.run(file=__file__, command_line=[])
