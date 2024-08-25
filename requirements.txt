@@ -4,3 +4,4 @@ matplotlib
 seaborn
 PyPDF2
 urllib3
+holidays
