@@ -6,3 +6,5 @@ PyPDF2
 urllib3
 holidays
 mplcursors
+fastapi
+uvicorn
