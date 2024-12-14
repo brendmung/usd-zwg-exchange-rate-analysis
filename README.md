@@ -1,5 +1,5 @@
 # USD/ZWG Exchange Rate Analysis
 
-This streamlit project provides an analysis of the exchange rate between the US Dollar (USD) and the Zimbabwean Dollar (ZWG) visualising trends and fluctuations in the currencies over time.
+Analyze and visualize the exchange rate trends between the US Dollar (USD) and the Zimbabwean Dollar (ZWG) over time.
 
-Live Demo • https://usd-zwg-exchange-rate.streamlit.app/
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Click%20Here-brightgreen)](https://usd-zwg-exchange-rate.streamlit.app/)
