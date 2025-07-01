@@ -1,0 +1,28 @@
+# .github/workflows/update-data.yml
+name: Update Exchange Rate Data
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'  # Run weekdays at 8 AM UTC
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          pip install pandas PyPDF2 urllib3 holidays
+      - name: Update data
+        run: python update_data_script.py
+      - name: Commit changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add sorted_usd_zig_rates.csv
+          git commit -m "Auto-update exchange rate data" || exit 0
+          git push
