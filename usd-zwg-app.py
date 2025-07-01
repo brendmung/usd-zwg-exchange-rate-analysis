@@ -11,6 +11,7 @@ import PyPDF2
 import mplcursors
 from datetime import date
 import re
+import json
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -28,7 +29,6 @@ def is_market_closed_today():
     today = date.today()
     zw_holidays = holidays.ZW()  # Zimbabwean holidays
     return today.weekday() >= 5 or today in zw_holidays  # 5 and 6 are Saturday and Sunday
-
 
 # Function to generate possible PDF URLs
 def generate_pdf_urls(date):
@@ -62,8 +62,7 @@ def download_pdf(url, date):
         else:
             return False
     except Exception as e:
-        #st.warning(f"Error downloading {url}: {e}")
-        st.warning("Fetching error occured!")
+        st.warning("Fetching error occurred!")
         return False
 
 # Function to extract the MID_RATE2 for USD from a PDF
@@ -83,13 +82,68 @@ def extract_usd_rates_from_pdf(pdf_path):
             }
         return None
     except Exception as e:
-        #st.warning(f"Error extracting rates from {pdf_path}: {e}")
-        st.warning("Data extraction error occured!")
+        st.warning("Data extraction error occurred!")
         return None
 
-def update_data(csv_path):
+def get_last_update_info():
+    """Get information about the last update from a metadata file"""
+    metadata_file = 'update_metadata.json'
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+                return metadata
+        except:
+            return None
+    return None
+
+def save_last_update_info(last_date, update_time):
+    """Save information about the last update"""
+    metadata = {
+        'last_date': last_date.isoformat() if hasattr(last_date, 'isoformat') else str(last_date),
+        'last_update_time': update_time.isoformat(),
+        'update_count': 1
+    }
+    
+    # Try to read existing metadata to increment update count
+    existing_metadata = get_last_update_info()
+    if existing_metadata:
+        metadata['update_count'] = existing_metadata.get('update_count', 0) + 1
+    
+    try:
+        with open('update_metadata.json', 'w') as f:
+            json.dump(metadata, f)
+    except:
+        pass  # Silently fail if we can't write metadata
+
+def should_update_data():
+    """Determine if we should update data based on last update time and market hours"""
+    metadata = get_last_update_info()
+    
+    if not metadata:
+        return True  # First time, always update
+    
+    try:
+        last_update = datetime.fromisoformat(metadata['last_update_time'])
+        now = datetime.now()
+        
+        # Only update if:
+        # 1. It's been more than 4 hours since last update, OR
+        # 2. It's a new day and market should be open
+        time_since_update = now - last_update
+        
+        if time_since_update > timedelta(hours=4):
+            return not is_market_closed_today()  # Only update if market is open
+        
+        return False
+    except:
+        return True  # If we can't parse the metadata, update anyway
+
+def update_data_smart(csv_path):
+    """Smart update that only fetches new data when necessary"""
     default_start_date = pd.Timestamp('2024-04-11').date()
 
+    # Load existing data
     if os.path.exists(csv_path) and os.path.getsize(csv_path) > 0:
         df = pd.read_csv(csv_path)
         df['Date'] = pd.to_datetime(df['Date']).dt.date
@@ -102,43 +156,74 @@ def update_data(csv_path):
         df = pd.DataFrame(columns=['Date', 'BID', 'ASK', 'MID_RATE', 'Filename'])
         last_date = default_start_date
 
+    # Check if we should update
+    if not should_update_data():
+        return df
+
     today = datetime.now().date()
-
     new_data = []
-
-    while last_date < today:
-        last_date += timedelta(days=1)
-        urls = generate_pdf_urls(last_date)
+    
+    # Show progress for updates
+    if last_date < today:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        for url in urls:
-            if download_pdf(url, last_date):
-                correct_filename = f"RATES_{last_date.day:02d}_{last_date.strftime('%B').upper()}_{last_date.year}.pdf"
-                save_path = os.path.join('temp', correct_filename)
-                
-                rates = extract_usd_rates_from_pdf(save_path)
-                if rates is not None:
-                    new_data.append({
-                        'Date': last_date,
-                        'BID': rates['BID'],
-                        'ASK': rates['ASK'],
-                        'MID_RATE': rates['MID_RATE'],
-                        'Filename': correct_filename
-                    })
-                    break  # Stop after finding the first valid PDF for this date
+        dates_to_check = []
+        check_date = last_date
+        while check_date < today:
+            check_date += timedelta(days=1)
+            dates_to_check.append(check_date)
         
-        #if not new_data or new_data[-1]['Date'] != last_date:
-        #    st.info(f"No data found for {last_date}")
+        total_dates = len(dates_to_check)
+        
+        for i, check_date in enumerate(dates_to_check):
+            # Update progress
+            progress = (i + 1) / total_dates
+            progress_bar.progress(progress)
+            status_text.text(f"Checking data for {check_date.strftime('%Y-%m-%d')}...")
+            
+            urls = generate_pdf_urls(check_date)
+            
+            for url in urls:
+                if download_pdf(url, check_date):
+                    correct_filename = f"RATES_{check_date.day:02d}_{check_date.strftime('%B').upper()}_{check_date.year}.pdf"
+                    save_path = os.path.join('temp', correct_filename)
+                    
+                    rates = extract_usd_rates_from_pdf(save_path)
+                    if rates is not None:
+                        new_data.append({
+                            'Date': check_date,
+                            'BID': rates['BID'],
+                            'ASK': rates['ASK'],
+                            'MID_RATE': rates['MID_RATE'],
+                            'Filename': correct_filename
+                        })
+                        break  # Stop after finding the first valid PDF for this date
+        
+        # Clean up progress indicators
+        progress_bar.empty()
+        status_text.empty()
 
     if new_data:
         new_df = pd.DataFrame(new_data)
         df = pd.concat([df, new_df], ignore_index=True)
         df = df.sort_values('Date').reset_index(drop=True)
         df.to_csv(csv_path, index=False)
-        #st.success(f"Data updated. {len(new_data)} new entries added.")
-    #else:
-        #st.info("No new data to add.")
+        
+        # Save update metadata
+        save_last_update_info(df['Date'].max(), datetime.now())
+        
+        st.success(f"Data updated! {len(new_data)} new entries added.")
+    else:
+        # Still save metadata even if no new data
+        save_last_update_info(last_date, datetime.now())
 
     return df
+
+# Initialize session state for data persistence within the session
+if 'exchange_data' not in st.session_state:
+    st.session_state.exchange_data = None
+    st.session_state.last_load_time = None
 
 st.set_page_config(page_title="USD/ZWG Exchange Rate Analysis", layout="wide")
 
@@ -161,25 +246,66 @@ st.markdown("""
         border-radius: 5px;
         margin-bottom: 1rem;
     }
+    .update-info {
+        background-color: #e8f4f8;
+        padding: 0.5rem;
+        border-radius: 3px;
+        font-size: 0.8rem;
+        margin-bottom: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Load data
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_data():
+# Load data with smart caching
+def load_data_with_session_cache():
+    """Load data with session-level caching to avoid repeated processing"""
     csv_path = 'sorted_usd_zig_rates.csv'
-    df = update_data(csv_path)
-    # No need to convert 'Date' column here, it's already in date format
-    return df.drop(columns=['Filename'])
+    
+    # Check if we have cached data and if it's still fresh
+    if (st.session_state.exchange_data is not None and 
+        st.session_state.last_load_time is not None and 
+        datetime.now() - st.session_state.last_load_time < timedelta(minutes=30)):
+        return st.session_state.exchange_data
+    
+    # Load/update data
+    df = update_data_smart(csv_path)
+    
+    # Cache in session state
+    st.session_state.exchange_data = df.drop(columns=['Filename']) if 'Filename' in df.columns else df
+    st.session_state.last_load_time = datetime.now()
+    
+    return st.session_state.exchange_data
 
-data_no_filename = load_data()
+# Add manual refresh button in sidebar
+st.sidebar.header("Data Controls")
+if st.sidebar.button("🔄 Force Refresh Data"):
+    st.session_state.exchange_data = None
+    st.session_state.last_load_time = None
+    st.rerun()
+
+# Show update information
+metadata = get_last_update_info()
+if metadata:
+    try:
+        last_update = datetime.fromisoformat(metadata['last_update_time'])
+        st.markdown(f"""
+        <div class='update-info'>
+        📊 Last data update: {last_update.strftime('%Y-%m-%d %H:%M')} | 
+        Updates performed: {metadata.get('update_count', 'Unknown')} | 
+        Next auto-update: {('In 4+ hours' if datetime.now() - last_update < timedelta(hours=4) else 'Available now')}
+        </div>
+        """, unsafe_allow_html=True)
+    except:
+        pass
+
+data_no_filename = load_data_with_session_cache()
 
 # Header
 st.markdown("<div class='stHeader'>", unsafe_allow_html=True)
 st.title("USD/ZWG Exchange Rate Analysis")
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Sidebar for controls
+# Rest of your existing code remains the same...
 st.sidebar.header("Controls")
 
 # Determine the minimum and maximum dates for the date range picker
@@ -208,7 +334,6 @@ line_style = st.sidebar.selectbox("Choose line style", ['-', '--', '-.', ':'])
 marker = st.sidebar.checkbox("Add markers")
 
 # Main content area - Graph
-
 if is_market_closed_today():
     st.markdown("<h3 style='color: red;'>Market Closed Today</h3>", unsafe_allow_html=True)
 else:
@@ -272,7 +397,6 @@ def on_add(sel):
 
 st.pyplot(fig)
 plt.close(fig)
-
 
 # Tables and Statistics
 col1, col2 = st.columns(2)
