@@ -1,5 +1,6 @@
 # .github/workflows/update-data.yml
 name: Update Exchange Rate Data
+
 on:
   schedule:
     - cron: '0 8 * * 1-5'  # Run weekdays at 8 AM UTC
@@ -8,21 +9,55 @@ on:
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # Required for pushing changes
+      
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4  # Updated to latest version
         with:
-          python-version: '3.9'
+          fetch-depth: 0  # Fetch full history
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4  # Updated to latest version
+        with:
+          python-version: '3.11'  # Updated Python version
+          
       - name: Install dependencies
         run: |
-          pip install pandas PyPDF2 urllib3 holidays
-      - name: Update data
-        run: python update_data_script.py
-      - name: Commit changes
+          pip install --upgrade pip
+          pip install pandas PyPDF2 urllib3 holidays requests
+          
+      - name: Create necessary directories
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add sorted_usd_zig_rates.csv
-          git commit -m "Auto-update exchange rate data" || exit 0
+          mkdir -p temp
+          
+      - name: Update data
+        run: |
+          python update_data_script.py
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          
+      - name: Check for changes
+        id: verify-changed-files
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Commit and push changes
+        if: steps.verify-changed-files.outputs.changed == 'true'
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "Auto-update exchange rate data - $(date +'%Y-%m-%d %H:%M:%S UTC')"
           git push
+          
+      - name: No changes detected
+        if: steps.verify-changed-files.outputs.changed == 'false'
+        run: |
+          echo "No changes to commit"
