@@ -25,6 +25,16 @@ base_url = "https://www.rbz.co.zw/documents/Exchange_Rates/"
 # Ensure the 'temp' directory exists
 os.makedirs('temp', exist_ok=True)
 
+# Global error tracking
+if 'error_shown' not in st.session_state:
+    st.session_state.error_shown = False
+
+def show_error_once(message):
+    """Show error message only once per session"""
+    if not st.session_state.error_shown:
+        st.error(message)
+        st.session_state.error_shown = True
+
 def is_market_closed_today():
     today = date.today()
     zw_holidays = holidays.ZW()  # Zimbabwean holidays
@@ -62,7 +72,7 @@ def download_pdf(url, date):
         else:
             return False
     except Exception as e:
-        st.warning("Fetching error occurred!")
+        show_error_once("Unable to fetch data from source. Please check your connection or try again later.")
         return False
 
 # Function to extract the MID_RATE2 for USD from a PDF
@@ -82,7 +92,7 @@ def extract_usd_rates_from_pdf(pdf_path):
             }
         return None
     except Exception as e:
-        st.warning("Data extraction error occurred!")
+        show_error_once("Error processing data. Some information may be incomplete.")
         return None
 
 def get_last_update_info():
@@ -246,13 +256,6 @@ st.markdown("""
         border-radius: 5px;
         margin-bottom: 1rem;
     }
-    .update-info {
-        background-color: #e8f4f8;
-        padding: 0.5rem;
-        border-radius: 3px;
-        font-size: 0.8rem;
-        margin-bottom: 1rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -276,28 +279,6 @@ def load_data_with_session_cache():
     
     return st.session_state.exchange_data
 
-# Add manual refresh button in sidebar
-st.sidebar.header("Data Controls")
-if st.sidebar.button("🔄 Force Refresh Data"):
-    st.session_state.exchange_data = None
-    st.session_state.last_load_time = None
-    st.rerun()
-
-# Show update information
-metadata = get_last_update_info()
-if metadata:
-    try:
-        last_update = datetime.fromisoformat(metadata['last_update_time'])
-        st.markdown(f"""
-        <div class='update-info'>
-        📊 Last data update: {last_update.strftime('%Y-%m-%d %H:%M')} | 
-        Updates performed: {metadata.get('update_count', 'Unknown')} | 
-        Next auto-update: {('In 4+ hours' if datetime.now() - last_update < timedelta(hours=4) else 'Available now')}
-        </div>
-        """, unsafe_allow_html=True)
-    except:
-        pass
-
 data_no_filename = load_data_with_session_cache()
 
 # Header
@@ -305,7 +286,6 @@ st.markdown("<div class='stHeader'>", unsafe_allow_html=True)
 st.title("USD/ZWG Exchange Rate Analysis")
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Rest of your existing code remains the same...
 st.sidebar.header("Controls")
 
 # Determine the minimum and maximum dates for the date range picker
