@@ -1,6 +1,5 @@
-# update_data_script.py
 import pandas as pd
-import urllib3
+import requests
 import os
 import holidays
 import PyPDF2
@@ -8,12 +7,28 @@ from datetime import datetime, timedelta, date
 import re
 import json
 import sys
+import time
 
 # Disable SSL warnings
+import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Initialize the HTTP manager with SSL verification disabled
-http = urllib3.PoolManager(cert_reqs='CERT_NONE')
+# Create a persistent session with browser-like headers
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Ch-Ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+})
 
 # The base URL
 base_url = "https://www.rbz.co.zw/documents/Exchange_Rates/"
@@ -43,8 +58,21 @@ def generate_pdf_urls(date):
 def download_pdf(url, date):
     try:
         print(f"Attempting to download: {url}")
-        response = http.request('GET', url, timeout=30)
-        if response.status == 200:
+        
+        # Add a small delay to be more respectful to the server
+        time.sleep(1)
+        
+        response = session.get(url, timeout=30, verify=False)
+        
+        if response.status_code == 200:
+            # Check if it's actually a PDF and not HTML (bot detection page)
+            if not response.content.startswith(b'%PDF'):
+                if b'captcha' in response.content.lower() or b'radware' in response.content.lower():
+                    print(f"Bot detection triggered for {url}")
+                    return False
+                print(f"Downloaded file is not a valid PDF: {url}")
+                return False
+            
             day = date.day
             month_name = date.strftime("%B")
             year = date.year
@@ -52,12 +80,15 @@ def download_pdf(url, date):
             save_path = os.path.join('temp', correct_filename)
 
             with open(save_path, 'wb') as f:
-                f.write(response.data)
-            print(f"Successfully downloaded: {correct_filename}")
+                f.write(response.content)
+            print(f"Successfully downloaded: {correct_filename} ({len(response.content)} bytes)")
             return True
         else:
-            print(f"Failed to download {url}, status: {response.status}")
+            print(f"Failed to download {url}, status: {response.status_code}")
             return False
+    except requests.exceptions.RequestException as e:
+        print(f"Request error downloading {url}: {str(e)}")
+        return False
     except Exception as e:
         print(f"Error downloading {url}: {str(e)}")
         return False
@@ -123,7 +154,7 @@ def save_last_update_info(last_date, update_time):
 def update_data():
     """Update exchange rate data"""
     csv_path = 'sorted_usd_zig_rates.csv'
-    default_start_date = pd.Timestamp('2024-04-11').date()
+    default_start_date = pd.Timestamp('2025-09-30').date()
 
     print("Starting data update...")
     
@@ -195,6 +226,9 @@ def update_data():
         
         if not found_data:
             print(f"No data found for {check_date}")
+        
+        # Add a delay between date checks to avoid overwhelming the server
+        time.sleep(2)
 
     if new_data:
         print(f"\nFound {len(new_data)} new entries")
@@ -235,4 +269,6 @@ if __name__ == "__main__":
         print("Script completed successfully")
     except Exception as e:
         print(f"Script failed with error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
